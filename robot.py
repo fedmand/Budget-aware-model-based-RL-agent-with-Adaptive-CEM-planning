@@ -22,7 +22,7 @@ plt.ion()
 
 # CONFIGURATION PARAMETERS HERE. Add whatever configuration parameters you like here.
 # Remember, you will only be submitting this robot.py file, no other files.
-SEED = 5
+SEED = 1
 
 # The Robot class (which could be called "Agent") is the "brain" of the robot, and is used to decide what action to execute in the environment
 class Robot:
@@ -66,6 +66,8 @@ class Robot:
         self.reset_patience_boot = 100
         self.reset_patience_plan = 50
         self.patience_move = 30
+        self.pending_escape = False
+        self.escape_attempt = 0
         # DEBUG ONLY
         self.next_print = constants.INIT_MONEY - 10
 
@@ -88,7 +90,7 @@ class Robot:
             action_type = 2
             action_value = np.zeros(2, dtype=np.float32)
             self.reset()
-            print("Reset due to stuck")
+            print("Reset due to stuck (or goal reached if previous comment is like that)")
         
         # Bootstrap phase: random action for exploration 
         elif self.replay_buffer.size < self.bootstrap_steps:
@@ -109,7 +111,11 @@ class Robot:
         else:
             action_type = 1
             if self.num_steps == 0 or self.num_steps % self.replan_every == 0:
-                self.make_CEM_plan(obs)
+                if self.pending_escape == True:
+                    self.make_CEM_plan(obs, force_explore=True)
+                    print("Exploratory step")
+                else:
+                    self.make_CEM_plan(obs)
                 self.plan_steps = 0
             
             action_value = self.planned_actions[self.plan_steps]    # out-of-bounds will never happen as long as plan_steps < HORIZON
@@ -143,10 +149,12 @@ class Robot:
             self.pending_reset = True
             return
         
-        # if robot is stuck for patience steps --> raise reset flag (actual reset will be done in hte next training_action call) 
+        # if robot is stuck for patience steps --> raise exploratory flag (actual reset will be done in hte next training_action call) 
         if distance_to_goal < self.best_dist - self.reset_eps:
             self.best_dist = distance_to_goal
             self.no_improve_counter = 0
+            self.pending_escape = False
+            self.escape_attempt = 0
         else:
             self.no_improve_counter += 1
         
@@ -164,10 +172,14 @@ class Robot:
         else:
             self.no_move_counter = 0
         
-        # reset <--> no distance improvement && no movement    
-        if self.no_improve_counter >= patience and self.no_move_counter >= self.patience_move:
-            self.pending_reset = True
-        
+        # reset <--> no distance improvement && no movement && exploratory plan fail    
+        stuck_now = (self.no_improve_counter >= patience) and (self.no_move_counter >= self.patience_move)
+        if stuck_now:
+            self.pending_escape = True
+            self.escape_attempt += 1
+            if self.escape_attempt >= 15:
+                self.pending_reset = True
+                
         
     # Receive a new demonstration
     def receive_demo(self, demo):
@@ -182,9 +194,11 @@ class Robot:
         self.best_dist = np.inf
         self.pending_reset = False
         self.goal_counter = 0
+        self.pending_escape = False
+        self.escape_attempt = 0
     
     # The CEM planning algorithm
-    def make_CEM_plan(self, obs):
+    def make_CEM_plan(self, obs, force_explore=False):
         H = self.HORIZON
         N = self.NUM_PATH
         I = self.NUM_ITER
@@ -200,8 +214,13 @@ class Robot:
             scale = 0.25
         else:   
             scale = 0.1    # testing phase
+        
+        if force_explore:
+            N = 150
+            E = 20
+            scale = 0.5
+        
         std  = np.ones((H, 2), dtype=np.float32) * (scale * Amax)  # to ease exploration
-
         obs0 = np.array(obs, dtype=np.float32)
 
         # Reuse buffer for sampled action sequences for this iteration only
