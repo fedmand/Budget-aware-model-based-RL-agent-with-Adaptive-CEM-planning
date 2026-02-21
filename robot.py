@@ -22,7 +22,7 @@ plt.ion()
 
 # CONFIGURATION PARAMETERS HERE. Add whatever configuration parameters you like here.
 # Remember, you will only be submitting this robot.py file, no other files.
-SEED = 3
+SEED = 4
 
 # The Robot class (which could be called "Agent") is the "brain" of the robot, and is used to decide what action to execute in the environment
 class Robot:
