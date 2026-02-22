@@ -22,7 +22,7 @@ plt.ion()
 
 # CONFIGURATION PARAMETERS HERE. Add whatever configuration parameters you like here.
 # Remember, you will only be submitting this robot.py file, no other files.
-SEED = 3
+SEED = 2
 
 # The Robot class (which could be called "Agent") is the "brain" of the robot, and is used to decide what action to execute in the environment
 class Robot:
@@ -44,10 +44,10 @@ class Robot:
         self.bootstrap_trained = False
         self.testing_phase = False
         # CEM params
-        self.NUM_ITER = 3
+        self.NUM_ITER = 3   # consider 4
         self.NUM_PATH = 70
         self.NUM_ELITES = 10  # should always be 10-15% of paths
-        self.HORIZON = 15
+        self.HORIZON = 20  # or 15
         # robot components
         self.replay_buffer = ReplayBuffer()
         self.dynamics_model = DynamicsModel()   
@@ -68,6 +68,8 @@ class Robot:
         self.patience_move = 30
         self.pending_escape = False
         self.escape_attempt = 0
+        # test
+        self.test_prev_obs = None
         # DEBUG ONLY
         self.next_print = constants.INIT_MONEY - 10
 
@@ -131,12 +133,37 @@ class Robot:
     # Get the next testing action
     def testing_action(self, obs):
         if self.num_steps % self.replan_every == 0:
-            self.make_CEM_plan(obs)
+            # if robot is stuck, add more exploration
+            if self.pending_escape:
+                self.make_CEM_plan(obs, force_explore=True)
+                print("Exploratory step")
+            else:
+                self.make_CEM_plan(obs, force_explore=False)
             self.plan_steps = 0
             
         action = self.planned_actions[self.plan_steps]
         self.plan_steps += 1
         self.num_steps += 1
+        
+        if self.num_steps > 1:
+            # compute proxy of movement
+            delta_move = np.linalg.norm(obs - self.test_prev_obs)
+            if delta_move <= self.move_eps:
+                self.no_move_counter += 1
+                # if robot is stuck (proxy) , add exploration in CEM plan to escape the trap
+                if self.no_move_counter >= self.patience_move:
+                    self.pending_escape = True
+            else:
+                self.no_move_counter = 0
+                self.pending_escape = False
+                
+            # update obs
+            self.test_prev_obs = obs 
+                
+        else:
+            # initialisation
+            self.test_prev_obs = obs
+        
         return action
 
     def receive_transition(self, obs, action, next_obs, distance_to_goal):
@@ -177,7 +204,7 @@ class Robot:
         if stuck_now:
             self.pending_escape = True
             self.escape_attempt += 1
-            if self.escape_attempt >= 15:
+            if self.escape_attempt >= 20:
                 self.pending_reset = True
                 
         
@@ -193,7 +220,6 @@ class Robot:
         self.no_move_counter = 0
         self.best_dist = np.inf
         self.pending_reset = False
-        self.goal_counter = 0
         self.pending_escape = False
         self.escape_attempt = 0
     
