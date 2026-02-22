@@ -22,7 +22,7 @@ plt.ion()
 
 # CONFIGURATION PARAMETERS HERE. Add whatever configuration parameters you like here.
 # Remember, you will only be submitting this robot.py file, no other files.
-SEED = 1
+SEED = 3
 
 # The Robot class (which could be called "Agent") is the "brain" of the robot, and is used to decide what action to execute in the environment
 class Robot:
@@ -144,7 +144,7 @@ class Robot:
         self.replay_buffer.add_transition(obs, action, next_obs, distance_to_goal)
         
         # goal has been reached --> reset because modelling after red line is wasteful
-        if distance_to_goal <= 0.01:
+        if distance_to_goal <= 0.05:
             print(f"Goal reached within {distance_to_goal} --> reset")
             self.pending_reset = True
             return
