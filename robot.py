@@ -22,7 +22,7 @@ plt.ion()
 
 # CONFIGURATION PARAMETERS HERE. Add whatever configuration parameters you like here.
 # Remember, you will only be submitting this robot.py file, no other files.
-SEED = 2
+SEED = 3
 
 # The Robot class (which could be called "Agent") is the "brain" of the robot, and is used to decide what action to execute in the environment
 class Robot:
@@ -42,6 +42,7 @@ class Robot:
         self.end_training_margin = 0.1
         # flags to track phase
         self.bootstrap_trained = False
+        self.goal_reached = False
         self.testing_phase = False
         # CEM params
         self.NUM_ITER = 3   # consider 4
@@ -68,36 +69,31 @@ class Robot:
         self.patience_move = 30
         self.pending_escape = False
         self.escape_attempt = 0
-        # test
+        # testing phase
         self.test_prev_obs = None
-        # DEBUG ONLY
-        self.next_print = constants.INIT_MONEY - 10
+
 
     # Get the next training action
     def training_action(self, obs, money):
-        # DEBUG ONLY
-        if money <= self.next_print:
-            self.next_print -= 10
-            print(money)
-            
-        # money basically finished --> end training to avoid penalty and reset robot's statefor testing
-        if money <= self.end_training_margin:
+                  
+        # money basically finished or cannot afford a reset when I should--> end training to avoid penalty and reset robot's state for testing
+        if money <= self.end_training_margin or (self.goal_reached and money < constants.COST_PER_RESET + self.end_training_margin):
             action_type = 4
             action_value = np.zeros(2, dtype=np.float32)
             self.testing_phase = True
             self.reset()
             
-        # robot has been stuck for patience steps --> reset 
+        # robot has been stuck for patience steps or it reached the goal --> reset 
         elif self.pending_reset and money > constants.COST_PER_RESET:
             action_type = 2
             action_value = np.zeros(2, dtype=np.float32)
             self.reset()
-            print("Reset due to stuck (or goal reached if previous comment is like that)")
         
         # Bootstrap phase: random action for exploration 
         elif self.replay_buffer.size < self.bootstrap_steps:
             action_type = 1
             action_value = np.random.uniform(-constants.MAX_ACTION_MAGNITUDE, constants.MAX_ACTION_MAGNITUDE, 2)
+        
         elif self.replay_buffer.size == self.bootstrap_steps and not self.bootstrap_trained:  
             self.bootstrap_trained = True
             # train dynamics model and distance predictor
@@ -107,7 +103,6 @@ class Robot:
             action_type = 2
             action_value = np.zeros(2, dtype=np.float32)
             self.reset()  
-            print("Bootstrap finished")
         
         # actually plan with CEM
         else:
@@ -115,7 +110,6 @@ class Robot:
             if self.num_steps == 0 or self.num_steps % self.replan_every == 0:
                 if self.pending_escape == True:
                     self.make_CEM_plan(obs, force_explore=True)
-                    print("Exploratory step")
                 else:
                     self.make_CEM_plan(obs)
                 self.plan_steps = 0
@@ -136,7 +130,6 @@ class Robot:
             # if robot is stuck, add more exploration
             if self.pending_escape:
                 self.make_CEM_plan(obs, force_explore=True)
-                print("Exploratory step")
             else:
                 self.make_CEM_plan(obs, force_explore=False)
             self.plan_steps = 0
@@ -172,8 +165,8 @@ class Robot:
         
         # goal has been reached --> reset because modelling after red line is wasteful
         if distance_to_goal <= 0.05:
-            print(f"Goal reached within {distance_to_goal} --> reset")
             self.pending_reset = True
+            self.goal_reached = True
             return
         
         # if robot is stuck for patience steps --> raise exploratory flag (actual reset will be done in hte next training_action call) 
@@ -221,6 +214,7 @@ class Robot:
         self.best_dist = np.inf
         self.pending_reset = False
         self.pending_escape = False
+        self.goal_reached = False
         self.escape_attempt = 0
     
     # The CEM planning algorithm
@@ -279,8 +273,6 @@ class Robot:
 
         self.planned_actions = mean.astype(np.float32)
 
-        
-        
         
 class ReplayBuffer():
     def __init__(self):
